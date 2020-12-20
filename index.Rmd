@@ -1,0 +1,164 @@
+---
+title: "Analysing Google Scholar data from R"
+author: "Andi Fugard"
+date: "20 Dec 2020"
+output: html_document
+---
+
+This page shows how to plot citations data using the `scholar` package by Guangchuang Yu et al. and the `tidyverse`.
+
+
+Load the packages:
+
+
+```{r message=FALSE, warning=FALSE}
+library(scholar)
+library(tidyverse)
+```
+
+I'll use my citations data:
+
+```{r}
+andi_id <- "xrY7bFYAAAAJ"
+pubs <- get_publications(andi_id)
+```
+
+Now `pubs` has a bunch of info on each of my papers:
+
+```{r}
+names(pubs)
+```
+
+Here's the current year, which will come in handy later.
+
+```{r}
+current_year <- as.numeric(format(Sys.Date(), "%Y"))
+```
+
+It was `r current_year` when I ran this.
+
+Now let's look at citations each paper got by year. Get all citation data:
+
+```{r}
+all_cites <- map_dfr(pubs$pubid,
+                       ~ get_article_cite_history(andi_id, .x))
+```
+
+This has one row per year and original cited paper:
+
+```{r}
+head(all_cites)
+```
+
+Now glue the original paper info back on. First reduce it a bit:
+
+```{r}
+red_pubs <- pubs %>%
+  mutate(paper_year = year,
+         total_cites = cites) %>%
+  select(title, author, paper_year, journal, pubid, total_cites)
+```
+
+Join:
+
+```{r}
+all_cites_pub <- all_cites %>%
+  left_join(red_pubs)
+```
+
+Next, we need to add in implicit zero-cites where a year is missing, from the publication year up to current year.
+
+This function does it for one paper's cite info:
+
+```{r}
+complete_paper_cites <- function(one_paper) {
+  expand_years <- setdiff(unique(one_paper$paper_year):current_year,
+                          one_paper$year)
+  complete(one_paper,
+           year = expand_years,
+           cites = 0,
+           pubid,
+           title,
+           author,
+           paper_year,
+           journal,
+           total_cites) %>%
+    arrange(year)  
+} 
+```
+
+Give it a quick test using this input:
+
+```{r}
+test_input <- all_cites_pub %>%
+  filter(pubid == "43bX7VzcjpAC")
+
+test_input %>%
+  select(paper_year, year, cites)
+```
+
+Here's the output:
+
+```{r}
+complete_paper_cites(test_input) %>%
+  select(paper_year, year, cites)
+```
+
+Looks good, so tidy up:
+
+```{r}
+rm(test_input)
+```
+
+Now do this for all papers:
+
+```{r}
+all_cites_filled <- all_cites_pub %>%
+  group_split(pubid) %>%
+  map_dfr(complete_paper_cites) %>%
+  mutate(age = year - paper_year)
+```
+
+Calculate the cumulative citation sums:
+
+```{r}
+all_cites_cum <- all_cites_filled %>%
+  group_by(pubid) %>%
+  mutate(cum_sum = cumsum(cites))
+```
+
+Plot for all papers...
+
+```{r}
+all_cites_cum %>%
+  ggplot(aes(x = year, y = cum_sum, colour = pubid)) +
+  geom_line(size = 1) +
+  theme(legend.position = "none") +
+  labs(x = "Year",
+       y = "Cumulative citations",
+       title = "All the papers")
+```
+
+That's quite busy so try again.
+
+```{r fig.height=4, fig.width=8}
+min_cites <- 40
+
+to_plot <- all_cites_cum %>%
+  filter(total_cites >= min_cites)
+
+to_plot %>%
+  ggplot(aes(x = year,
+             y = cum_sum,
+             colour = reorder(str_trunc(title, 35), desc(total_cites)))) +
+  geom_line(size = 1.3) +
+  theme(legend.position = "right",
+        legend.directio = "vertical") +
+  labs(x = "Year",
+       y = "Cumulative citations",
+       colour = "Paper",
+       title = paste("Papers cited at least", min_cites, "times")) +
+  scale_x_continuous(breaks = seq(min(to_plot$year),max(to_plot$year)+2, 2))
+```
+
+
