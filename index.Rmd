@@ -53,16 +53,16 @@ head(all_cites)
 Now glue the original paper info back on. First reduce it a bit:
 
 ```{r}
-red_pubs <- pubs %>%
+red_pubs <- pubs |>
   mutate(paper_year = year,
-         total_cites = cites) %>%
+         total_cites = cites) |>
   select(title, author, paper_year, journal, pubid, total_cites)
 ```
 
 Join:
 
 ```{r}
-all_cites_pub <- all_cites %>%
+all_cites_pub <- all_cites |>
   left_join(red_pubs)
 ```
 
@@ -82,7 +82,7 @@ complete_paper_cites <- function(one_paper) {
            author,
            paper_year,
            journal,
-           total_cites) %>%
+           total_cites) |>
     arrange(year)  
 } 
 ```
@@ -90,17 +90,17 @@ complete_paper_cites <- function(one_paper) {
 Give it a quick test using this input:
 
 ```{r}
-test_input <- all_cites_pub %>%
+test_input <- all_cites_pub |>
   filter(pubid == "43bX7VzcjpAC")
 
-test_input %>%
+test_input |>
   select(paper_year, year, cites)
 ```
 
 Here's the output:
 
 ```{r}
-complete_paper_cites(test_input) %>%
+complete_paper_cites(test_input) |>
   select(paper_year, year, cites)
 ```
 
@@ -113,26 +113,26 @@ rm(test_input)
 Now do this for all papers:
 
 ```{r}
-all_cites_filled <- all_cites_pub %>%
-  group_split(pubid) %>%
-  map_dfr(complete_paper_cites) %>%
+all_cites_filled <- all_cites_pub |>
+  group_split(pubid) |>
+  map_dfr(complete_paper_cites) |>
   mutate(age = year - paper_year)
 ```
 
 Calculate the cumulative citation sums:
 
 ```{r}
-all_cites_cum <- all_cites_filled %>%
-  group_by(pubid) %>%
+all_cites_cum <- all_cites_filled |>
+  group_by(pubid) |>
   mutate(cum_sum = cumsum(cites))
 ```
 
 Plot for all papers...
 
 ```{r dpi = 600}
-all_cites_cum %>%
+all_cites_cum |>
   ggplot(aes(x = year, y = cum_sum, colour = pubid)) +
-  geom_line(size = 1, alpha = 0.5) +
+  geom_line(linewidth = 1, alpha = 0.5) +
   theme(legend.position = "none") +
   labs(x = "Year",
        y = "Cumulative citations",
@@ -141,24 +141,46 @@ all_cites_cum %>%
 
 That's quite busy so try again.
 
-```{r fig.height=4, fig.width=8, dpi = 600, warning=FALSE}
-min_cites <- 40
+```{r}
+min_cites <- 50
+```
 
-to_plot <- all_cites_cum %>%
+```{r fig.height=4, fig.width=7, dpi = 600, warning=FALSE}
+to_plot <- all_cites_cum |>
   filter(total_cites >= min_cites)
 
-to_plot %>%
+to_plot |>
   ggplot(aes(x = year,
              y = cum_sum,
-             colour = reorder(str_trunc(title, 35), desc(total_cites)))) +
-  stat_smooth(geom="line", size = 1.2, alpha = 0.5) +
+             colour = reorder(str_trunc(title, 20), desc(total_cites)))) +
+  stat_smooth(geom="line", linewidth = 1, alpha = 0.5) +
   theme(legend.position = "right",
         legend.directio = "vertical") +
   labs(x = "Year",
        y = "Cumulative citations",
        colour = "Paper",
        title = paste("Papers cited at least", min_cites, "times")) +
-  scale_x_continuous(breaks = seq(min(to_plot$year),max(to_plot$year)+2, 2))
+  scale_x_continuous(breaks = seq(min(to_plot$year),max(to_plot$year)+2, 2)) +
+  scale_y_continuous(breaks = seq(0,ceiling(max(to_plot$cum_sum)/200)*200, 200))
 ```
 
+```{r fig.height=4, fig.width=7, dpi = 600, warning=FALSE}
+to_plot <- all_cites_cum |>
+  filter(total_cites >= min_cites)
+
+to_plot |>
+  filter(age >= 0 & cum_sum > 0) |>
+  ggplot(aes(x = age,
+             y = cum_sum,
+             colour = reorder(str_trunc(title, 20), desc(total_cites)))) +
+  stat_smooth(geom="line", linewidth = 1, alpha = 0.5) +
+  theme(legend.position = "right",
+        legend.directio = "vertical") +
+  labs(x = "Age (years)",
+       y = "Cumulative citations",
+       colour = "Paper",
+       title = paste("Papers cited at least", min_cites, "times")) +
+  scale_x_continuous(breaks = seq(min(to_plot$age),max(to_plot$age)+2, 1)) +
+  scale_y_continuous(trans = "log2")
+```
 
